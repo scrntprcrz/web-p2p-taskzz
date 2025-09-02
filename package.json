@@ -1,0 +1,23 @@
+{
+  "name": "taskzz",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "node server.mjs"
+  },
+  "dependencies": {
+    "express": "^4.19.2",
+    "open": "^10.2.0",
+    "socket.io": "^4.8.1"
+  },
+  "author": "scrntprcrz",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/scrntprcrz/web-p2p-taskzz"
+  },
+  "homepage": "https://github.com/scrntprcrz/web-p2p-taskzz",
+  "bugs": {
+    "url": "https://github.com/scrntprcrz/web-p2p-taskzz/issues"
+  }
+}

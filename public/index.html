@@ -1,0 +1,249 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>taskzz 3000</title>
+
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.1/dist/css/bootstrap.min.css" rel="stylesheet" />
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css" rel="stylesheet" />
+
+  <script src="https://cdn.jsdelivr.net/npm/lodash@4.17.21/lodash.min.js" crossorigin="anonymous"></script>
+  <script src="https://cdn.jsdelivr.net/npm/fuse.js@6.6.2"></script>
+  <script src="https://cdn.jsdelivr.net/npm/luxon@3.4.4/build/global/luxon.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jquery/3.7.1/jquery.min.js"></script>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/toastr.js/latest/toastr.min.css" />
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/toastr.js/latest/toastr.min.js"></script>
+  <script defer src="/socket.io/socket.io.js"></script>
+  <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.1/dist/js/bootstrap.bundle.min.js" defer></script>
+
+  <link rel="stylesheet" href="./styles.css" />
+</head>
+
+<body x-data="meshApp()" x-init="init()">
+  <div class="app">
+    <header class="app-header">
+      <div class="d-flex align-items-center gap-3">
+        <div class="fs-5 fw-bold">taskzz 3000</div>
+      </div>
+      <div class="chips ms-auto">
+        <span class="chip"><strong>ID:</strong>
+          <span x-text="peerId.slice(0,8)"></span></span>
+        <span class="chip" :class="openPeers>0 ? 'success' : 'danger'">
+          <strong>Network:</strong>
+          <span x-text="openPeers>0?'Active':'No peers'"></span>
+        </span>
+        <span class="chip"><strong>Peers:</strong> <span x-text="openPeers"></span></span>
+      </div>
+    </header>
+
+    <div class="add-card" role="region" aria-label="Add new task">
+      <div class="input-group">
+        <span class="input-group-text"><i class="bi bi-card-checklist"></i></span>
+
+        <input id="newTaskInput" x-ref="newTaskInput" type="text" class="form-control" x-model="newNoteText"
+          placeholder="Task" @keyup.enter="createNote()" />
+      </div>
+
+      <div class="add-actions">
+        <div class="left">
+          <button class="btn btn-primary btn-inline btn-sm" @click="syncAll()" data-bs-toggle="tooltip"
+            data-bs-title="Elect freshest leader and push snapshot">
+            <i class="bi bi-arrow-repeat"></i>
+            <span class="ms-1">Sync</span>
+          </button>
+          <button class="btn btn-warning btn-inline btn-sm" @click="forcePushMyState()" data-bs-toggle="tooltip"
+            data-bs-title="Force push: clear on all peers and set my current state">
+            <i class="bi bi-upload"></i>
+            <span class="ms-1">Force push</span>
+          </button>
+          <button class="btn btn-danger btn-inline btn-sm" @click="clearAll()" data-bs-toggle="tooltip"
+            data-bs-title="Clear all tasks from all peers">
+            <i class="bi bi-trash3-fill"></i>
+            <span class="ms-1">Clear all</span>
+          </button>
+        </div>
+        <div class="right">
+          <button class="btn btn-primary btn-inline btn-sm"
+            @click="newNoteText && newNoteText.trim().length ? createNote() : $refs.newTaskInput.focus()"
+            data-bs-toggle="tooltip" data-bs-title="Add task">
+            <i class="bi bi-plus-lg"></i>
+            <span class="ms-1">Add task</span>
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <section class="panel">
+      <div class="panel-head">
+        <div class="d-flex align-items-end gap-3" style="padding: 10px 12px">
+          <div class="fw-semibold">Tasks</div>
+          <div class="tabs-right ms-auto me-1">
+            <div class="input-group">
+              <input id="search" type="search" class="form-control" x-model="searchQuery" placeholder="Search…"
+                @input="onSearchChanged()" autocomplete="off" autocorrect="off" autocapitalize="off"
+                spellcheck="false" />
+              <span class="input-group-text"><i class="bi bi-search"></i></span>
+            </div>
+          </div>
+        </div>
+
+        <div class="progress progress-thin">
+          <div class="progress-bar bg-warning" role="progressbar"
+            :style="`width: ${Math.round((getPending().length / ((getPending().length + getDone().length) || 1)) * 100)}%`"
+            :aria-valuenow="Math.round((getPending().length / ((getPending().length + getDone().length) || 1)) * 100)"
+            aria-valuemin="0" aria-valuemax="100"></div>
+          <div class="progress-bar bg-success" role="progressbar"
+            :style="`width: ${Math.round((getDone().length / ((getPending().length + getDone().length) || 1)) * 100)}%`"
+            :aria-valuenow="Math.round((getDone().length / ((getPending().length + getDone().length) || 1)) * 100)"
+            aria-valuemin="0" aria-valuemax="100"></div>
+        </div>
+      </div>
+
+      <div class="panel-body">
+        <section class="mb-x" aria-labelledby="pending-header">
+          <div id="pending-header" class="section-toolbar bg-warning-soft">
+            <div class="fw-semibold">
+              Pending tasks
+              <span class="text-muted">(<span x-text="getPending().length"></span>)</span>
+            </div>
+            <div class="d-flex gap-2">
+              <button class="btn btn-quiet btn-sm" @click="toggleSelectMode()" :disabled="getPending().length===0"
+                data-bs-toggle="tooltip" :data-bs-title="selectMode ? 'Exit selection' : 'Selection mode'">
+                <i class="bi" :class="selectMode ? 'bi-x-circle' : 'bi-check-square'"></i>
+                <span x-text="selectMode ? 'Exit selection' : 'Select'"></span>
+              </button>
+              <button class="btn btn-success btn-sm" @click="completeSelected()" :disabled="selectedIds.size===0">
+                <i class="bi bi-check2-square"></i>
+                <span>Complete selected</span>
+              </button>
+              <button class="btn btn-success btn-sm" @click="completeAllPending()"
+                :disabled="getPending().length===0 || selectMode ">
+                <i class="bi bi-check2-all"></i>
+                <span>Complete all</span>
+              </button>
+              <button class="btn btn-danger btn-sm" @click="deleteAllPending()"
+                :disabled="getPending().length===0 || selectMode ">
+                <i class="bi bi-trash"></i>
+                <span>Delete pending</span>
+              </button>
+            </div>
+          </div>
+
+          <div class="list-wrap">
+            <template x-if="getPending().length === 0">
+              <div class="empty">
+                <i class="bi bi-list-check fs-4 d-block mb-2"></i>
+                No pending tasks.
+                <template x-if="selectMode">
+                  <div class="small">
+                    Selection is active but there are no
+                    pending tasks.
+                  </div>
+                </template>
+              </div>
+            </template>
+            <template x-if="getPending().length > 0">
+              <ul class="list-group mb-4">
+                <template x-for="n in getPending()" :key="n.id">
+                  <li class="list-group-item d-flex justify-content-between align-items-start">
+                    <div class="me-2 d-flex align-items-start gap-2">
+                      <input type="checkbox" class="form-check-input mt-1" x-show="selectMode"
+                        :checked="isSelected(n.id)" @change="toggleSelect(n.id)" />
+                      <div>
+                        <div class="note-title" x-text="n.text"></div>
+                        <div class="note-meta">
+                          Created:
+                          <span x-text="fmtTime(n.createdAt)"></span>
+                          · By:
+                          <span x-text="n.createdBy"></span>
+                          · ID:
+                          <span x-text="n.id.slice(0,8)"></span>
+                          <div>
+                            Elapsed:
+                            <span x-text="relativeFrom(n.createdAt)"></span>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                    <div class="d-flex gap-2">
+                      <button class="btn btn-success btn-sm d-flex align-items-center gap-1"
+                        @click="completeNote(n.id)">
+                        <i class="bi bi-check2"></i><span>Complete</span>
+                      </button>
+                      <button class="btn btn-danger btn-sm d-flex align-items-center gap-1" @click="deleteNote(n.id)">
+                        <i class="bi bi-trash"></i>
+                      </button>
+                    </div>
+                  </li>
+                </template>
+              </ul>
+            </template>
+          </div>
+        </section>
+
+        <section class="mb-2" aria-labelledby="completed-header">
+          <div id="completed-header" class="section-toolbar bg-pastel-success">
+            <div class="fw-semibold">
+              Completed tasks
+              <span class="text-muted">(<span x-text="getDone().length"></span>)</span>
+            </div>
+            <div>
+              <button class="btn btn-danger btn-sm" @click="deleteAllDone()" :disabled="getDone().length===0">
+                <i class="bi bi-trash"></i> Delete completed
+              </button>
+            </div>
+          </div>
+
+          <div class="list-wrap">
+            <template x-if="getDone().length === 0">
+              <div class="empty">
+                <i class="bi bi-check2-circle fs-4 d-block mb-2"></i>
+                No completed tasks.
+              </div>
+            </template>
+            <template x-if="getDone().length > 0">
+              <ul class="list-group">
+                <template x-for="n in getDone()" :key="n.id">
+                  <li class="list-group-item d-flex justify-content-between align-items-start done">
+                    <div class="me-2">
+                      <div class="note-title" x-text="n.text"></div>
+                      <div class="note-meta">
+                        Created:
+                        <span x-text="fmtTime(n.createdAt)"></span>
+                        · By:
+                        <span x-text="n.createdBy"></span>
+                        · Completed by:
+                        <span x-text="n.doneBy || '—'"></span>
+                        (<span x-text="fmtTime(n.doneAt)"></span>)
+                        <div>
+                          Elapsed:
+                          <span x-text="relativeFrom(n.doneAt || n.createdAt)"></span>
+                        </div>
+                      </div>
+                    </div>
+                    <div>
+                      <button class="btn btn-danger btn-sm d-flex align-items-center gap-1" @click="deleteNote(n.id)">
+                        <i class="bi bi-trash"></i>
+                      </button>
+                    </div>
+                  </li>
+                </template>
+              </ul>
+            </template>
+          </div>
+        </section>
+      </div>
+    </section>
+
+    <script>
+      document.write(
+        `<script src="./app.js?t=${new Date().getTime()}"><\/script>`
+      );
+    </script>
+  </div>
+</body>
+
+</html>
